@@ -1,0 +1,143 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="dashboard">
+    <div class="dashboard-cards">
+        <div class="card stat-card">
+            <div class="stat-title">Total Requests</div>
+            <div class="stat-value">{{ stats.total }}</div>
+        </div>
+        <div class="card stat-card">
+            <div class="stat-title">Approved</div>
+            <div class="stat-value">{{ stats.approved }}</div>
+        </div>
+        <div class="card stat-card">
+            <div class="stat-title">Rejected</div>
+            <div class="stat-value">{{ stats.rejected }}</div>
+        </div>
+        <div class="card stat-card">
+            <div class="stat-title">Pending</div>
+            <div class="stat-value">{{ stats.pending }}</div>
+        </div>
+    </div>
+    <h3>All Leave Requests</h3>
+    <form method="get" id="studentSelectForm">
+        <label for="student_id">Select Student:</label>
+        <select name="student_id" id="student_id" onchange="document.getElementById('studentSelectForm').submit();" {% if students|length == 0 %}disabled{% endif %}>
+            <option value="">All Students</option>
+            {% for student in students %}
+                <option value="{{ student.id }}" {% if selected_student and student.id == selected_student.id %}selected{% endif %}>{{ student.username }}</option>
+            {% endfor %}
+        </select>
+    </form>
+    {% if students|length == 0 %}
+        <div class="error" style="margin:1rem 0;">No students have requested leave yet.</div>
+    {% endif %}
+    {% if selected_student %}
+        <div class="card stat-card" style="margin: 1rem 0;">
+            <div class="stat-title">Leave Requests by {{ selected_student.username }}</div>
+            <div class="stat-value">{{ student_leave_count }}</div>
+        </div>
+        {% set student_leaves = leaves | selectattr('student_id', 'equalto', selected_student.id) | list %}
+        {% if student_leaves|length > 0 %}
+        <div style="margin:2rem 0;">
+            <h4>Leave Calendar for {{ selected_student.username }}</h4>
+            <div id="leaveCalendar"></div>
+            <div id="leaveDetails" style="margin-top:1rem;"></div>
+        </div>
+        <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.css" rel="stylesheet">
+        <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.js"></script>
+        <script>
+            var leaveEvents = [
+                {% for leave in student_leaves %}
+                {
+                    id: '{{ leave.id }}',
+                    title: 'Requested Leave ({{ leave.status }})',
+                    start: '{{ leave.date }}',
+                    color: '#2d5be3',
+                    extendedProps: {
+                        date_applied: '{{ leave.date_applied.strftime('%Y-%m-%d %H:%M') if leave.date_applied else '-' }}',
+                        student: '{{ leave.student.username if leave.student else '-' }}',
+                        teacher: '{{ leave.teacher.username if leave.teacher else '-' }}',
+                        reason: '{{ leave.reason }}',
+                        category: '{{ leave.category }}',
+                        status: '{{ leave.status }}'
+                    }
+                }{% if not loop.last %},{% endif %}
+                {% endfor %}
+            ];
+            document.addEventListener('DOMContentLoaded', function() {
+                var calendarEl = document.getElementById('leaveCalendar');
+                var calendar = new FullCalendar.Calendar(calendarEl, {
+                    initialView: 'dayGridMonth',
+                    height: 400,
+                    events: leaveEvents,
+                    eventClick: function(info) {
+                        var props = info.event.extendedProps;
+                        var details = '<div class="card stat-card">' +
+                            '<b>Date Applied:</b> ' + props.date_applied + '<br>' +
+                            '<b>Leave Date:</b> ' + info.event.startStr + '<br>' +
+                            '<b>Student:</b> ' + props.student + '<br>' +
+                            '<b>Teacher:</b> ' + props.teacher + '<br>' +
+                            '<b>Reason:</b> ' + props.reason + '<br>' +
+                            '<b>Category:</b> ' + props.category + '<br>' +
+                            '<b>Status:</b> ' + props.status +
+                            '</div>';
+                        document.getElementById('leaveDetails').innerHTML = details;
+                    }
+                });
+                calendar.render();
+            });
+        </script>
+        {% endif %}
+        <div class="dashboard-cards">
+            <div style="flex:1;">
+                <h4>Requested Rate by Category</h4>
+                <canvas id="requestedPieChart" width="400" height="200"></canvas>
+            </div>
+        </div>
+        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+        <script>
+            var requestedCtx = document.getElementById('requestedPieChart').getContext('2d');
+            var requestedChart = new Chart(requestedCtx, {
+                type: 'pie',
+                data: {
+                    labels: {{ requested_labels|tojson }},
+                    datasets: [{
+                        data: {{ requested_counts|tojson }},
+                        backgroundColor: ['#2d5be3', '#27ae60', '#e67e22', '#e74c3c', '#8e44ad']
+                    }]
+                },
+                options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
+            });
+        </script>
+    {% endif %}
+    <table class="leave-table">
+        <thead>
+            <tr><th>Student</th><th>Date Applied</th><th>Leave Date</th><th>Reason</th><th>Category</th><th>Status</th><th>Teacher</th><th>Action</th></tr>
+        </thead>
+        <tbody>
+            {% for leave in filtered_leaves %}
+            <tr>
+                <td>{{ leave.student.username }}</td>
+                <td>{{ leave.date_applied.strftime('%Y-%m-%d %H:%M') if leave.date_applied else '-' }}</td>
+                <td>{{ leave.date }}</td>
+                <td>{{ leave.reason }}</td>
+                <td>{{ leave.category }}</td>
+                <td>{{ leave.status }}</td>
+                <td>{{ leave.teacher.subject if leave.teacher else '-' }}</td>
+                <td>
+                    {% if leave.status == 'Pending' %}
+                    <form method="POST" action="/requests">
+                        <input type="hidden" name="leave_id" value="{{ leave.id }}">
+                        <button name="action" value="approve">Approve</button>
+                        <button name="action" value="reject">Reject</button>
+                        <input type="text" name="comment" placeholder="Comment (optional)" style="width:100px;">
+                    </form>
+                    {% else %}-{% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %} 
